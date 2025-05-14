@@ -2,63 +2,71 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from fpdf import FPDF
-from datetime import timedelta
 
-st.set_page_config(page_title="Shaker Alert PDF Export", layout="wide")
-st.title("🛠️ Shaker Alert Dashboard with PDF Recommendations")
+st.set_page_config(layout="wide")
+st.title("🛠️ Operational Diagnostics Dashboard (Real Metrics)")
 
-uploaded_file = st.sidebar.file_uploader("Upload your sensor CSV", type=["csv"])
+st.sidebar.header("Upload Drilling Sensor CSV")
+uploaded_file = st.sidebar.file_uploader("Upload CSV", type=["csv"])
+
 if uploaded_file:
-    usecols = [
-        'YYYY/MM/DD', 'HH:MM:SS',
-        'SHAKER #1 (Units)', 'SHAKER #2 (Units)', 'SHAKER #3 (PERCENT)',
-        'Total Pump Output (gal_per_min)', 'DAS Vibe Lateral Max (g_force)'
-    ]
-    df = pd.read_csv(uploaded_file, usecols=usecols)
-    df['Timestamp'] = pd.to_datetime(df['YYYY/MM/DD'] + ' ' + df['HH:MM:SS'])
-    df.drop(columns=['YYYY/MM/DD', 'HH:MM:SS'], inplace=True)
-    df.set_index('Timestamp', inplace=True)
+    with st.spinner("Loading data..."):
+        usecols = [
+            'YYYY/MM/DD', 'HH:MM:SS',
+            'Rate Of Penetration (ft_per_hr)',
+            'Hook Load (klbs)', 'Standpipe Pressure (psi)',
+            'DAS Vibe Lateral Max (g_force)', 'SHAKER #3 (PERCENT)',
+            'Flow (flow_percent)', 'Total Pump Output (gal_per_min)'
+        ]
 
-    df['Shaker Capacity (GPM)'] = df['Total Pump Output (gal_per_min)'] / 3
-    df['Performance Index'] = (100 - df['DAS Vibe Lateral Max (g_force)'] * 3).clip(0, 100)
-    df['Overload Alert'] = (df['Shaker Capacity (GPM)'] > df['Performance Index']).astype(int)
+        df = pd.read_csv(uploaded_file, usecols=usecols)
+        df['Timestamp'] = pd.to_datetime(df['YYYY/MM/DD'] + ' ' + df['HH:MM:SS'], format='%m/%d/%Y %H:%M:%S')
+        df.set_index('Timestamp', inplace=True)
+        df.drop(columns=['YYYY/MM/DD', 'HH:MM:SS'], inplace=True)
 
-    st.metric("Total Alerts", df['Overload Alert'].sum())
-    st.dataframe(df[df['Overload Alert'] == 1].tail(10))
+        st.success("Data loaded successfully.")
 
-    def generate_pdf(df):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.image('Prodigy_IQ_logo.png', x=10, y=8, w=50)
-        pdf.ln(20)
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(0, 10, "Shaker Alert Summary Report", ln=True, align='C')
-        pdf.set_font("Arial", '', 12)
-        pdf.cell(0, 10, f"Total rows: {len(df)}", ln=True)
-        pdf.cell(0, 10, f"Alerts triggered: {df['Overload Alert'].sum()}", ln=True)
-        pdf.ln(6)
+        tab1, tab2 = st.tabs(["📈 Data Preview", "🔬 Operational Diagnostics"])
 
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, "Alert Details", ln=True)
-        pdf.set_font("Arial", '', 10)
-        recommendations = {
-            'overload': "Reduce pump rate or inspect screen load.",
-            'high_vibe': "Check for mechanical imbalance or worn screen.",
-            'general': "Monitor shaker speed and clean screens."
-        }
-        alerts = df[df['Overload Alert'] == 1].tail(10)
-        for idx, row in alerts.iterrows():
-            line = f"{idx:%Y-%m-%d %H:%M:%S} | GPM: {row['Shaker Capacity (GPM)']:.1f} > Perf: {row['Performance Index']:.1f}"
-            pdf.cell(0, 8, line, ln=True)
-            pdf.set_font("Arial", 'I', 9)
-            pdf.multi_cell(0, 8, f"→ Recommendation: {recommendations['overload']}")
-            pdf.set_font("Arial", '', 10)
-        output_path = "/mnt/data/shaker_alert_recommendations.pdf"
-        pdf.output(output_path)
-        return output_path
+        with tab1:
+            st.markdown("### Head of File")
+            st.dataframe(df.head(10))
+            st.line_chart(df[['Rate Of Penetration (ft_per_hr)', 'SHAKER #3 (PERCENT)']])
 
-    if st.button("📄 Generate PDF Summary"):
-        report_path = generate_pdf(df)
-        with open(report_path, "rb") as f:
-            st.download_button("Download PDF Report", f, file_name="shaker_alert_summary.pdf")
+        with tab2:
+            mode = st.selectbox("Choose Diagnostic View", [
+                "Screen Optimization",
+                "Shaker Performance %",
+                "Screen Utilization",
+                "Washout Risk",
+                "Downhole Issue",
+                "Sidetrack Risk"
+            ])
+
+            if mode == "Screen Optimization":
+                df['Screen Load Index (%)'] = (df['Flow (flow_percent)'] + df['SHAKER #3 (PERCENT)']) / 2
+                st.line_chart(df['Screen Load Index (%)'])
+
+            elif mode == "Shaker Performance %":
+                df['Shaker Effectiveness'] = (100 - df['DAS Vibe Lateral Max (g_force)'] * 3).clip(0, 100)
+                st.line_chart(df['Shaker Effectiveness'])
+
+            elif mode == "Screen Utilization":
+                df['Screen Utilization (%)'] = (df['SHAKER #3 (PERCENT)'] / df['Flow (flow_percent)']) * 100
+                df['Screen Utilization (%)'] = df['Screen Utilization (%)'].clip(0, 150)
+                st.line_chart(df['Screen Utilization (%)'])
+
+            elif mode == "Washout Risk":
+                df['Washout Risk'] = ((df['Rate Of Penetration (ft_per_hr)'] > 60) & (df['Standpipe Pressure (psi)'] < 500)).astype(int)
+                st.area_chart(df['Washout Risk'])
+
+            elif mode == "Downhole Issue":
+                df['Downhole Flag'] = ((df['Hook Load (klbs)'] > 100) & (df['Rate Of Penetration (ft_per_hr)'] < 5)).astype(int)
+                st.bar_chart(df['Downhole Flag'])
+
+            elif mode == "Sidetrack Risk":
+                df['ROP Δ'] = df['Rate Of Penetration (ft_per_hr)'].diff().abs()
+                df['Sidetrack Alert'] = (df['ROP Δ'] > 30).astype(int)
+                st.line_chart(df['Sidetrack Alert'])
+
+        st.sidebar.download_button("Download Diagnostics CSV", df.to_csv().encode(), "diagnostic_output.csv")

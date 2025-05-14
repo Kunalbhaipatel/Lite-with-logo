@@ -29,9 +29,9 @@ if uploaded_file:
 
     def generate_pdf(df):
         pdf = FPDF()
-pdf.image('Prodigy_IQ_logo.png', x=10, y=8, w=50)
-pdf.ln(20)
         pdf.add_page()
+        pdf.image('Prodigy_IQ_logo.png', x=10, y=8, w=50)
+        pdf.ln(20)
         pdf.set_font("Arial", 'B', 16)
         pdf.cell(0, 10, "Shaker Alert Summary Report", ln=True, align='C')
         pdf.set_font("Arial", '', 12)
